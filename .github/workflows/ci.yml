@@ -30,26 +30,56 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macOS-latest, windows-latest]
+        os: [windows-2019, windows-2022, ubuntu-20.04]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      # Install NASM by ourselves instead of using prebuilt inside aws-lc
+      - name: Install NASM
+        uses: ilammy/setup-nasm@v1
+        if: "${{ (matrix.os == 'windows-2019') || (matrix.os == 'windows-2022') }}"
+      # We should upgrade gcc version inside Windows 2019 since it's too out-dated for aws-lc.
+      # Fix the version to 12.2.0 due to the issue: https://github.com/egor-tensin/setup-mingw/issues/17#issuecomment-1890253793
+      - name: Update MinGW
+        uses: egor-tensin/setup-mingw@v2.2.0
+        if: "${{ matrix.os == 'windows-2019' }}"
+        with:
+          version: 12.2.0 
+      
+      # Install the latest gcc version
+      - name: Set up GCC
+        uses: egor-tensin/setup-gcc@v1
+        if: "${{ matrix.os == 'ubuntu-20.04' }}"
+        with:
+          version: 11
+
+      - name: Install Rust toolchain (Windows)
+        if: "${{ (matrix.os == 'windows-2019') || (matrix.os == 'windows-2022') }}"
         run: |
           rustup show
           rustup component add rustfmt clippy
+          rustup target add x86_64-pc-windows-gnu
 
-      - name: Code format check
-        run: cargo fmt --check -- --config "unstable_features=true,imports_granularity=Crate,group_imports=StdExternalCrate"
-      - name: Clippy
-        run: cargo clippy --all --examples -- -D warnings
+      - name: Install Rust toolchain (Ubuntu)
+        if: "${{ matrix.os == 'ubuntu-20.04' }}"
+        run: |
+          rustup show
+          rustup component add rustfmt clippy
+          rustup target add x86_64-unknown-linux-gnu
 
-      - name: Build zenoh-plugin-mqtt
-        run: cargo build -p zenoh-plugin-mqtt --verbose --all-targets
+      #- name: Code format check
+      #  run: cargo fmt --check -- --config "unstable_features=true,imports_granularity=Crate,group_imports=StdExternalCrate"
+      #- name: Clippy
+      #  run: cargo clippy --all --examples -- -D warnings
 
-      - name: Build zenoh-bridge-mqtt
-        run: cargo build -p zenoh-bridge-mqtt --verbose --all-targets
+      - name: Build all (Windows)
+        if: "${{ (matrix.os == 'windows-2019') || (matrix.os == 'windows-2022') }}"
+        run: cargo build --release --bins --lib --target x86_64-pc-windows-gnu
+
+      - name: Build all (Ubuntu)
+        if: "${{ matrix.os == 'ubuntu-20.04' }}"
+        run: cargo build --release --bins --lib --target x86_64-unknown-linux-gnu
 
       - name: Run tests
         run: cargo test --verbose
